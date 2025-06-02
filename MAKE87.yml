@@ -1,6 +1,145 @@
-build_kit:
-  name: python3
-  version: latest
-outbound_topics:
-  - name: HELLO_WORLD_MESSAGE
-    message_type: make87_messages.text.text_plain.PlainText
+version: 1
+build:
+  custom:
+    dockerfile: build_kit/Dockerfile
+    platforms: [linux/amd64, linux/arm64]
+interfaces:
+  - name: vector-http
+    protocol: http
+    default_port:
+      name: vector-http
+      protocol: TCP
+      target_port: 8686
+    clients:
+      - name: loki
+        spec: { string: loki }
+        config:
+          type: object
+          properties:
+            sink_type: { type: string, default: loki }
+            encoding:
+              type: object
+              properties:
+                codec: { type: string, default: json }
+            inputs:
+              type: array
+              items: { type: string }
+              default: [ "stdin" ]
+
+      - name: file
+        spec: { string: file }
+        config:
+          type: object
+          properties:
+            sink_type: { type: string, default: file }
+            path: { type: string, default: "/var/log/vector.log" }
+            encoding:
+              type: object
+              properties:
+                codec: { type: string, default: json }
+            inputs:
+              type: array
+              items: { type: string }
+              default: [ "stdin" ]
+
+      - name: elastic
+        spec: { string: elasticsearch }
+        config:
+          type: object
+          properties:
+            sink_type: { type: string, default: elasticsearch }
+            index: { type: string, default: "vector-logs" }
+            inputs:
+              type: array
+              items: { type: string }
+              default: [ "stdin" ]
+
+      - name: prometheus
+        spec: { string: prometheus_remote_write }
+        config:
+          type: object
+          properties:
+            sink_type: { type: string, default: prometheus_remote_write }
+            inputs:
+              type: array
+              items: { type: string }
+              default: [ "stdin" ]
+  - name: vector-grpc
+    protocol: grpc
+    default_port:
+      name: vector-grpc
+      protocol: TCP
+      target_port: 4317
+    clients:
+      - name: otlp-grpc
+        spec: { string: otlp }
+        config:
+          type: object
+          properties:
+            sink_type: { type: string, default: otlp }
+            protocol: { type: string, enum: [ grpc ], default: grpc }
+            encoding:
+              type: object
+              properties:
+                codec: { type: string, default: json }
+            inputs:
+              type: array
+              items: { type: string }
+              default: [ "stdin" ]
+
+  - name: vector-tcp
+    protocol: tcp
+    default_port:
+      name: vector-tcp
+      protocol: TCP
+      target_port: 9000
+    clients:
+      - name: socket
+        spec: { string: socket }
+        config:
+          type: object
+          properties:
+            sink_type: { type: string, default: socket }
+            mode: { type: string, enum: [ tcp, udp ], default: tcp }
+            encoding:
+              type: object
+              properties:
+                codec: { type: string, default: json }
+            inputs:
+              type: array
+              items: { type: string }
+              default: [ "stdin" ]
+
+  - name: kafka
+    spec: { string: kafka }
+    config:
+      type: object
+      properties:
+        sink_type: { type: string, default: kafka }
+        topic: { type: string, default: "vector-logs" }
+        inputs:
+          type: array
+          items: { type: string }
+          default: [ "stdin" ]
+
+
+container_config:
+  volumes:
+    - "/var/run/docker.sock:/var/run/docker.sock"
+
+config:
+  type: object
+  properties:
+    sources:
+      type: array
+      description: "List of Vector sources to configure."
+      items:
+        type: object
+        required: [ "name", "type" ]
+        properties:
+          name:
+            type: string
+            description: "The unique name of the source."
+          type:
+            type: string
+            description: "The type of Vector sour
