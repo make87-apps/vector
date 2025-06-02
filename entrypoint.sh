@@ -7,20 +7,39 @@ mkdir -p /etc/vector
 # Extract app name for labeling
 app_name=$(echo "$MAKE87_CONFIG" | jq -r '.application_info.deployed_application_name // empty')
 
-# Write sources from .config.sources
-echo "$MAKE87_CONFIG" | jq -c '.config.sources[]' | while read -r source; do
-  name=$(echo "$source" | jq -r '.name')
-  type=$(echo "$source" | jq -r '.type')
+# Build source list (array of names)
+source_names=()
 
+# Extract sources
+has_sources=$(echo "$MAKE87_CONFIG" | jq -e '.config.sources | length > 0' 2>/dev/null || echo false)
+
+if [ "$has_sources" = "true" ]; then
+  echo "$MAKE87_CONFIG" | jq -c '.config.sources[]' | while read -r source; do
+    name=$(echo "$source" | jq -r '.name')
+    type=$(echo "$source" | jq -r '.type')
+
+    echo "" >> /etc/vector/vector.toml
+    echo "[sources.${name}]" >> /etc/vector/vector.toml
+    echo "type = \"${type}\"" >> /etc/vector/vector.toml
+
+    # Collect source name
+    source_names+=("$name")
+
+    # Copy additional fields
+    echo "$source" | jq 'del(.name, .type)' | jq -r "to_entries[] | \"\(.key) = \(.value | @json)\"" >> /etc/vector/vector.toml
+  done
+else
+  # Write fallback stdin source
   echo "" >> /etc/vector/vector.toml
-  echo "[sources.${name}]" >> /etc/vector/vector.toml
-  echo "type = \"${type}\"" >> /etc/vector/vector.toml
+  echo "[sources.stdin]" >> /etc/vector/vector.toml
+  echo "type = \"stdin\"" >> /etc/vector/vector.toml
+  source_names+=("stdin")
+fi
 
-  # Copy all other fields (excluding 'name' and 'type')
-  echo "$source" | jq 'del(.name, .type)' | jq -r "to_entries[] | \"\(.key) = \(.value | @json)\"" >> /etc/vector/vector.toml
-done
+# Choose first available source as default input fallback
+default_input=${source_names[0]}
 
-# Write sinks from all interfaces
+# Write sinks from interfaces
 echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface_entry; do
   iface=$(echo "$iface_entry" | jq -c '.value')
   iface_name=$(echo "$iface_entry" | jq -r '.key')
@@ -43,18 +62,36 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
     echo "" >> /etc/vector/vector.toml
     echo "[sinks.${iface_name}_${name}]" >> /etc/vector/vector.toml
     echo "type = \"${type}\"" >> /etc/vector/vector.toml
-
-    inputs=$(echo "$client" | jq -c '.inputs // ["stdin"]')
-    echo "inputs = $inputs" >> /etc/vector/vector.toml
     echo "endpoint = \"${host}:${port}\"" >> /etc/vector/vector.toml
 
-    # Always write labels for Loki sink (required by Vector)
+    # Get and validate inputs
+    inputs=$(echo "$client" | jq -c '.inputs // empty')
+    valid_inputs=()
+
+    if [ "$inputs" != "null" ] && [ "$inputs" != "" ]; then
+      for input in $(echo "$inputs" | jq -r '.[]'); do
+        for known in "${source_names[@]}"; do
+          if [ "$input" = "$known" ]; then
+            valid_inputs+=("\"$input\"")
+          fi
+        done
+      done
+    fi
+
+    # Fallback to stdin if no valid inputs
+    if [ "${#valid_inputs[@]}" -eq 0 ]; then
+      valid_inputs+=("\"$default_input\"")
+    fi
+
+    echo "inputs = [$(IFS=,; echo "${valid_inputs[*]}")]" >> /etc/vector/vector.toml
+
+    # Loki labels
     if [ "$type" = "loki" ]; then
       echo "[sinks.${iface_name}_${name}.labels]" >> /etc/vector/vector.toml
       echo "app = \"${app_name}\"" >> /etc/vector/vector.toml
     fi
 
-    # Handle optional keys (excluding labels for Loki)
+    # Optional nested config fields
     for key in encoding mode method compression namespace; do
       value=$(echo "$client" | jq -c --arg k "$key" 'if has($k) then .[$k] else null end')
       if [ "$value" != "null" ]; then
