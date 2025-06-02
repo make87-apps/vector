@@ -4,10 +4,10 @@ set -e
 mkdir -p /etc/vector
 : > /etc/vector/vector.toml
 
-# Extract app name for labeling
+# Extract app name (used optionally)
 app_name=$(echo "$MAKE87_CONFIG" | jq -r '.application_info.deployed_application_name // empty')
 
-# Track source names
+# Track known sources
 source_names=""
 has_sources=$(echo "$MAKE87_CONFIG" | jq -e '.config.sources | length > 0' 2>/dev/null || echo false)
 
@@ -33,7 +33,7 @@ else
   source_names="stdin\nhost_metrics\n"
 fi
 
-# Helper: determine default input based on sink type
+# Helper: determine fallback input for sink type
 default_input_for_sink() {
   case "$1" in
     loki|console|file|elasticsearch|kafka)
@@ -75,7 +75,7 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
     echo "type = \"${type}\"" >> /etc/vector/vector.toml
     echo "endpoint = \"${endpoint}\"" >> /etc/vector/vector.toml
 
-    # Handle inputs validation
+    # Validate inputs from config
     inputs=$(echo "$config" | jq -c '.inputs // empty')
     valid_inputs=""
     if [ "$inputs" != "null" ] && [ "$inputs" != "" ]; then
@@ -90,11 +90,10 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
     valid_inputs="${valid_inputs%,}"
     echo "inputs = [$valid_inputs]" >> /etc/vector/vector.toml
 
-    # Write config fields (flatten nested tables like encoding, labels)
+    # Write all remaining config fields (excluding inputs)
     echo "$config" | jq 'del(.inputs)' | jq -r 'to_entries[]' | while read -r entry; do
       key=$(echo "$entry" | jq -r '.key')
       value=$(echo "$entry" | jq -c '.value')
-
       if echo "$value" | grep -q '^{'; then
         echo "[sinks.${iface_name}_${name}.${key}]" >> /etc/vector/vector.toml
         echo "$value" | jq -r 'to_entries[] | .key + " = \"" + .value + "\"" ' >> /etc/vector/vector.toml
@@ -102,12 +101,6 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
         echo "$key = $value" >> /etc/vector/vector.toml
       fi
     done
-
-    # Ensure app label for Loki
-    if [ "$type" = "loki" ] && ! echo "$config" | jq -e '.labels' >/dev/null 2>&1; then
-      echo "[sinks.${iface_name}_${name}.labels]" >> /etc/vector/vector.toml
-      echo "app = \"${app_name}\"" >> /etc/vector/vector.toml
-    fi
   done
 done
 
