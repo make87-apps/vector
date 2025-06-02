@@ -112,7 +112,7 @@ echo "$MAKE87_CONFIG" \
         echo ""                                            >> ${target_file}
         echo "[sinks.${iface_name}_${name}]"               >> ${target_file}
         echo "type = \"${type}\""                          >> ${target_file}
-        echo "endpoint = \"${endpoint}\""                  >> ${target_file}
+        echo "endpoint = \"http://${endpoint}\""           >> ${target_file}
 
         # Validate “inputs” against known sources
         inputs=$(echo "$config" | jq -c '.inputs // empty')
@@ -128,12 +128,9 @@ echo "$MAKE87_CONFIG" \
         fi
         valid_inputs="${valid_inputs%,}"
         echo "inputs = [$valid_inputs]" >> ${target_file}
-        # add compression = "none"
-        echo "compression = \"none\"" >> ${target_file}
         # If this is a Loki sink, inject its labels block
         if [ "$type" = "loki" ]; then
           echo "labels = { app = \"${app_name}\" }" >> ${target_file}
-          echo "healthcheck.enabled = true" >> ${target_file}
         fi
 
         # Write every other key in “config” as a KV or a nested table
