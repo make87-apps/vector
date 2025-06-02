@@ -1,7 +1,7 @@
 version: 1
 build:
   custom:
-    dockerfile: build_kit/Dockerfile
+    dockerfile: Dockerfile
     platforms: [linux/amd64, linux/arm64]
 interfaces:
   - name: vector-http
