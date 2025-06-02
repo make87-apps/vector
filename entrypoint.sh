@@ -67,7 +67,7 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
       port=$(echo "$client" | jq -r '.vpn_port')
     fi
 
-    type=$(echo "$config" | jq -r '.sink_type // empty')
+    type=$(echo "$client" | jq -r '.config.sink_type // .sink_type // empty')
     if [ -z "$type" ] || [ "$type" = "null" ]; then
       echo "Missing or invalid sink_type for client $iface_name/$name"
       exit 1
