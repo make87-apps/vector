@@ -4,6 +4,9 @@ set -e
 mkdir -p /etc/vector
 : > /etc/vector/vector.toml  # clear or create the config file
 
+# Extract app name for labeling
+app_name=$(echo "$MAKE87_CONFIG" | jq -r '.application_info.deployed_application_name // empty')
+
 # Write sources from .config.sources
 echo "$MAKE87_CONFIG" | jq -c '.config.sources[]' | while read -r source; do
   name=$(echo "$source" | jq -r '.name')
@@ -17,11 +20,10 @@ echo "$MAKE87_CONFIG" | jq -c '.config.sources[]' | while read -r source; do
   echo "$source" | jq 'del(.name, .type)' | jq -r "to_entries[] | \"\(.key) = \(.value | @json)\"" >> /etc/vector/vector.toml
 done
 
-# Write sinks from all interfaces where protocol == vector
+# Write sinks from all interfaces
 echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface_entry; do
   iface=$(echo "$iface_entry" | jq -c '.value')
   iface_name=$(echo "$iface_entry" | jq -r '.key')
-  protocol=$(echo "$iface" | jq -r '.protocol // empty')
 
   echo "$iface" | jq -c '.clients | to_entries[]' | while read -r client_entry; do
     name=$(echo "$client_entry" | jq -r '.key')
@@ -46,7 +48,14 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
     echo "inputs = $inputs" >> /etc/vector/vector.toml
     echo "endpoint = \"${host}:${port}\"" >> /etc/vector/vector.toml
 
-    for key in encoding labels mode method compression namespace; do
+    # Always write labels for Loki sink (required by Vector)
+    if [ "$type" = "loki" ]; then
+      echo "[sinks.${iface_name}_${name}.labels]" >> /etc/vector/vector.toml
+      echo "app = \"${app_name}\"" >> /etc/vector/vector.toml
+    fi
+
+    # Handle optional keys (excluding labels for Loki)
+    for key in encoding mode method compression namespace; do
       value=$(echo "$client" | jq -c --arg k "$key" 'if has($k) then .[$k] else null end')
       if [ "$value" != "null" ]; then
         if echo "$value" | grep -q '^{'; then
