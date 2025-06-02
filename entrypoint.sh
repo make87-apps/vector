@@ -62,4 +62,4 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
   done
 done
 
-exec /usr/bin/vector --config /etc/vector/vector.toml
+exec vector --config /etc/vector/vector.toml
