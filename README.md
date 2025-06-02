@@ -24,25 +24,3 @@ It provides an opinionated production-ready deployment, easy integration into yo
 ## Configuration
 
 Vector’s configuration is managed via `vector.yaml`, rendered dynamically from make87’s config interface. You can define sources, transforms, and sinks just like in native Vector.
-
-Example (inside make87 view):
-
-```yaml
-sources:
-  my_logs:
-    type: file
-    include:
-      - /var/log/my-service.log
-
-transforms:
-  parse:
-    type: remap
-    inputs: ["my_logs"]
-    source: |
-      . = parse_json!(.message)
-
-sinks:
-  stdout:
-    type: console
-    inputs: ["parse"]
-    target: stdout
