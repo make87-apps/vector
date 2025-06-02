@@ -67,7 +67,13 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
       port=$(echo "$client" | jq -r '.vpn_port')
     fi
 
-    type=$(echo "$config" | jq -r '.sink_type')
+    type=$(echo "$config" | jq -r '.sink_type // empty')
+    if [ -z "$type" ] || [ "$type" = "null" ]; then
+      echo "Missing or invalid sink_type for client $iface_name/$name"
+      exit 1
+    fi
+
+
     endpoint="${host}:${port}"
 
     echo "" >> /etc/vector/vector.toml
