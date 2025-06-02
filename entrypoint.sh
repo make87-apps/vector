@@ -4,8 +4,10 @@ set -e
 mkdir -p /etc/vector
 : > /etc/vector/vector.toml
 
+# Extract app name (used optionally for labels)
 app_name=$(echo "$MAKE87_CONFIG" | jq -r '.application_info.deployed_application_name // empty')
 
+# Track known sources
 source_names=""
 has_sources=$(echo "$MAKE87_CONFIG" | jq -e '.config.sources | length > 0' 2>/dev/null || echo false)
 
@@ -31,6 +33,7 @@ else
   source_names="stdin\nhost_metrics\n"
 fi
 
+# Helper: determine fallback input for sink type
 default_input_for_sink() {
   case "$1" in
     loki|console|file|elasticsearch|kafka)
@@ -45,6 +48,7 @@ default_input_for_sink() {
   esac
 }
 
+# Write sinks
 echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface_entry; do
   iface=$(echo "$iface_entry" | jq -c '.value')
   iface_name=$(echo "$iface_entry" | jq -r '.key')
@@ -53,6 +57,7 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
     name=$(echo "$client_entry" | jq -r '.key')
     client=$(echo "$client_entry" | jq -c '.value')
 
+    # Extract fixed fields
     use_public=$(echo "$client" | jq -r '.use_public_ip // false')
     if [ "$use_public" = "true" ]; then
       host=$(echo "$client" | jq -r '.public_ip')
@@ -62,6 +67,7 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
       port=$(echo "$client" | jq -r '.vpn_port')
     fi
 
+    # Derive config by excluding fixed fields
     config=$(echo "$client" | jq 'del(.vpn_ip, .vpn_port, .public_ip, .public_port, .same_node, .protocol, .spec, .key, .name, .interface_name, .use_public_ip)')
 
     type=$(echo "$config" | jq -r '.sink_type // empty')
@@ -77,6 +83,7 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
     echo "type = \"${type}\"" >> /etc/vector/vector.toml
     echo "endpoint = \"${endpoint}\"" >> /etc/vector/vector.toml
 
+    # Determine valid inputs
     inputs=$(echo "$config" | jq -c '.inputs // empty')
     valid_inputs=""
     if [ "$inputs" != "null" ] && [ "$inputs" != "" ]; then
@@ -91,19 +98,26 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
     valid_inputs="${valid_inputs%,}"
     echo "inputs = [$valid_inputs]" >> /etc/vector/vector.toml
 
+    # Optional labels
     if [ "$type" = "loki" ]; then
       echo "[sinks.${iface_name}_${name}.labels]" >> /etc/vector/vector.toml
       echo "app = \"${app_name}\"" >> /etc/vector/vector.toml
     fi
 
-    echo "$config" | jq -c 'del(.inputs, .sink_type) | to_entries[]' | while read -r entry; do
+    # Remaining config fields
+    echo "$config" | jq 'del(.inputs, .sink_type)' | jq -c 'to_entries[]' | while read -r entry; do
       key=$(echo "$entry" | jq -r '.key')
       value=$(echo "$entry" | jq -c '.value')
-      if echo "$value" | grep -q '^{'; then
+
+      if echo "$value" | jq -e 'type == "object"' > /dev/null; then
         echo "[sinks.${iface_name}_${name}.${key}]" >> /etc/vector/vector.toml
         echo "$value" | jq -r 'to_entries[] | "\(.key) = \(.value | (if type=="string" then @json else tostring end))"' >> /etc/vector/vector.toml
       else
-        echo "$key = $value" >> /etc/vector/vector.toml
+        if echo "$value" | jq -e 'type == "string"' > /dev/null; then
+          echo "${key} = ${value}" >> /etc/vector/vector.toml
+        else
+          echo "${key} = $(echo "$value" | jq -r tostring)" >> /etc/vector/vector.toml
+        fi
       fi
     done
   done
