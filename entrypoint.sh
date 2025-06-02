@@ -130,10 +130,10 @@ echo "$MAKE87_CONFIG" \
         echo "inputs = [$valid_inputs]" >> ${target_file}
         # add compression = "none"
         echo "compression = \"none\"" >> ${target_file}
-
         # If this is a Loki sink, inject its labels block
         if [ "$type" = "loki" ]; then
           echo "labels = { app = \"${app_name}\" }" >> ${target_file}
+          echo "healthcheck.enabled = true" >> ${target_file}
         fi
 
         # Write every other key in “config” as a KV or a nested table
