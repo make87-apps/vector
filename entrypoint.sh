@@ -34,27 +34,27 @@ if [ "$has_sources" = "true" ]; then
 else
   # No “config.sources” given → inject two defaults
   echo ""                     >> ${target_file}
-  echo "[sources.stdin]"      >> ${target_file}
-  echo "type = \"stdin\""     >> ${target_file}
+  echo "[sources.docker_logs]"      >> ${target_file}
+  echo "type = \"docker_logs\""     >> ${target_file}
 
   echo ""                     >> ${target_file}
   echo "[sources.host_metrics]" >> ${target_file}
   echo "type = \"host_metrics\"" >> ${target_file}
 
-  source_names="stdin\nhost_metrics\n"
+  source_names="docker_logs\nhost_metrics\n"
 fi
 
 # If a sink has no valid inputs, choose a fallback based on sink type
 default_input_for_sink() {
   case "$1" in
     loki|console|file|elasticsearch|kafka)
-      echo "stdin"
+      echo "docker_logs"
       ;;
     prometheus_remote_write)
       echo "host_metrics"
       ;;
     *)
-      echo "stdin"
+      echo "docker_logs"
       ;;
   esac
 }
@@ -133,8 +133,7 @@ echo "$MAKE87_CONFIG" \
 
         # If this is a Loki sink, inject its labels block
         if [ "$type" = "loki" ]; then
-          echo "[sinks.${iface_name}_${name}.labels]" >> ${target_file}
-          echo "app = \"${app_name}\""             >> ${target_file}
+          echo "labels = { app = \"${app_name}\" }" >> ${target_file}
         fi
 
         # Write every other key in “config” as a KV or a nested table
