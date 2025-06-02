@@ -16,53 +16,76 @@ interfaces:
         config:
           type: object
           properties:
-            sink_type: { type: string, default: loki }
+            sink_type: 
+              type: string
+              default: loki
             encoding:
               type: object
               properties:
-                codec: { type: string, default: json }
+                codec: 
+                  type: string
+                  default: json
             inputs:
               type: array
-              items: { type: string }
-              default: [ "stdin" ]
+              items:
+                type: string
+              default: ["stdin"]
 
       - name: file
-        spec: { string: file }
+        spec:
+          string: file
         config:
           type: object
           properties:
-            sink_type: { type: string, default: file }
-            path: { type: string, default: "/var/log/vector.log" }
+            sink_type: 
+              type: string
+              default: file
+            path:
+              type: string
+              default: "/var/log/vector.log"
             encoding:
               type: object
               properties:
-                codec: { type: string, default: json }
+                codec: 
+                  type: string
+                  default: json
             inputs:
               type: array
-              items: { type: string }
+              items: 
+                type: string
               default: [ "stdin" ]
 
       - name: elastic
-        spec: { string: elasticsearch }
+        spec: 
+          string: elasticsearch
         config:
           type: object
           properties:
-            sink_type: { type: string, default: elasticsearch }
-            index: { type: string, default: "vector-logs" }
+            sink_type: 
+              type: string
+              default: elasticsearch
+            index: 
+              type: string
+              default: "vector-logs"
             inputs:
               type: array
-              items: { type: string }
+              items:
+                type: string
               default: [ "stdin" ]
 
       - name: prometheus
-        spec: { string: prometheus_remote_write }
+        spec: 
+          string: prometheus_remote_write
         config:
           type: object
           properties:
-            sink_type: { type: string, default: prometheus_remote_write }
+            sink_type:
+              type: string
+              default: prometheus_remote_write
             inputs:
               type: array
-              items: { type: string }
+              items: 
+                type: string
               default: [ "stdin" ]
   - name: vector-grpc
     protocol: grpc
@@ -72,19 +95,28 @@ interfaces:
       target_port: 4317
     clients:
       - name: otlp-grpc
-        spec: { string: otlp }
+        spec: 
+          string: otlp
         config:
           type: object
           properties:
-            sink_type: { type: string, default: otlp }
-            protocol: { type: string, enum: [ grpc ], default: grpc }
+            sink_type:
+              type: string
+              default: otlp
+            protocol: 
+              type: string
+              enum: [ grpc ]
+              default: grpc
             encoding:
               type: object
               properties:
-                codec: { type: string, default: json }
+                codec: 
+                  type: string
+                  default: json
             inputs:
               type: array
-              items: { type: string }
+              items: 
+                type: string
               default: [ "stdin" ]
 
   - name: vector-tcp
@@ -99,28 +131,24 @@ interfaces:
         config:
           type: object
           properties:
-            sink_type: { type: string, default: socket }
-            mode: { type: string, enum: [ tcp, udp ], default: tcp }
+            sink_type: 
+              type: string
+              default: socket
+            mode: 
+              type: string
+              enum: [ tcp, udp ]
+              default: tcp
             encoding:
               type: object
               properties:
-                codec: { type: string, default: json }
+                codec: 
+                  type: string
+                  default: json
             inputs:
               type: array
-              items: { type: string }
+              items: 
+                type: string
               default: [ "stdin" ]
-
-  - name: kafka
-    spec: { string: kafka }
-    config:
-      type: object
-      properties:
-        sink_type: { type: string, default: kafka }
-        topic: { type: string, default: "vector-logs" }
-        inputs:
-          type: array
-          items: { type: string }
-          default: [ "stdin" ]
 
 
 container_config:
@@ -142,4 +170,4 @@ config:
             description: "The unique name of the source."
           type:
             type: string
-            description: "The type of Vector sour
+            description: "The type of Vector soure"
