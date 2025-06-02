@@ -2,15 +2,13 @@
 set -e
 
 mkdir -p /etc/vector
-: > /etc/vector/vector.toml  # clear config file
+: > /etc/vector/vector.toml
 
 # Extract app name for Loki label
 app_name=$(echo "$MAKE87_CONFIG" | jq -r '.application_info.deployed_application_name // empty')
 
-# Track known source names as newline-separated list
+# Track known sources
 source_names=""
-
-# Check if any sources are defined
 has_sources=$(echo "$MAKE87_CONFIG" | jq -e '.config.sources | length > 0' 2>/dev/null || echo false)
 
 if [ "$has_sources" = "true" ]; then
@@ -23,20 +21,35 @@ if [ "$has_sources" = "true" ]; then
     echo "type = \"${type}\"" >> /etc/vector/vector.toml
 
     source_names="${source_names}${name}\n"
-
-    echo "$source" | jq 'del(.name, .type)' | jq -r "to_entries[] | \"\(.key) = \(.value | @json)\"" >> /etc/vector/vector.toml
+    echo "$source" | jq 'del(.name, .type)' | jq -r 'to_entries[] | "\(.key) = \(.value | @json)"' >> /etc/vector/vector.toml
   done
 else
+  # Add both fallback sources
   echo "" >> /etc/vector/vector.toml
   echo "[sources.stdin]" >> /etc/vector/vector.toml
   echo "type = \"stdin\"" >> /etc/vector/vector.toml
-  source_names="stdin\n"
+  echo "" >> /etc/vector/vector.toml
+  echo "[sources.host_metrics]" >> /etc/vector/vector.toml
+  echo "type = \"host_metrics\"" >> /etc/vector/vector.toml
+  source_names="stdin\nhost_metrics\n"
 fi
 
-# Use first source (stdin or first user-defined) as fallback input
-default_input=$(printf "$source_names" | head -n1)
+# Helper to choose default input based on sink type
+default_input_for_sink() {
+  case "$1" in
+    loki|console|file|elasticsearch|kafka)
+      echo "stdin"
+      ;;
+    prometheus_remote_write)
+      echo "host_metrics"
+      ;;
+    *)
+      echo "stdin"
+      ;;
+  esac
+}
 
-# Process sinks from all interfaces
+# Write sinks
 echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface_entry; do
   iface=$(echo "$iface_entry" | jq -c '.value')
   iface_name=$(echo "$iface_entry" | jq -r '.key')
@@ -61,7 +74,7 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
     echo "type = \"${type}\"" >> /etc/vector/vector.toml
     echo "endpoint = \"${host}:${port}\"" >> /etc/vector/vector.toml
 
-    # Validate inputs against known sources
+    # Validate or assign inputs
     inputs=$(echo "$client" | jq -c '.inputs // empty')
     valid_inputs=""
     if [ "$inputs" != "null" ] && [ "$inputs" != "" ]; then
@@ -69,13 +82,11 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
         echo "$source_names" | grep -qx "$input" && valid_inputs="${valid_inputs}\"$input\","
       done
     fi
-
-    # Fallback to default if none are valid
     if [ -z "$valid_inputs" ]; then
+      default_input=$(default_input_for_sink "$type")
       valid_inputs="\"$default_input\","
     fi
-
-    valid_inputs="${valid_inputs%,}"  # strip trailing comma
+    valid_inputs="${valid_inputs%,}"
     echo "inputs = [$valid_inputs]" >> /etc/vector/vector.toml
 
     # Loki-specific labels
@@ -84,7 +95,7 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
       echo "app = \"${app_name}\"" >> /etc/vector/vector.toml
     fi
 
-    # Optional nested fields
+    # Other optional config keys
     for key in encoding mode method compression namespace; do
       value=$(echo "$client" | jq -c --arg k "$key" 'if has($k) then .[$k] else null end')
       if [ "$value" != "null" ]; then
