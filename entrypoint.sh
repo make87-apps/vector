@@ -128,6 +128,8 @@ echo "$MAKE87_CONFIG" \
         fi
         valid_inputs="${valid_inputs%,}"
         echo "inputs = [$valid_inputs]" >> ${target_file}
+        # add compression = "none"
+        echo "compression = \"none\"" >> ${target_file}
 
         # If this is a Loki sink, inject its labels block
         if [ "$type" = "loki" ]; then
