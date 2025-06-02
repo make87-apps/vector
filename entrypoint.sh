@@ -108,7 +108,7 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
       value=$(echo "$entry" | jq -c '.value')
       if echo "$value" | grep -q '^{'; then
         echo "[sinks.${iface_name}_${name}.${key}]" >> /etc/vector/vector.toml
-        echo "$value" | jq -r 'to_entries[] | "\(.key) = \(.value | @json)"' >> /etc/vector/vector.toml
+        echo "$value" | jq -r 'to_entries[] | "\(.key) = \(.value | (if type=="string" then @json else tostring end))"' >> /etc/vector/vector.toml
       else
         echo "$key = $value" >> /etc/vector/vector.toml
       fi
