@@ -23,8 +23,6 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
   iface_name=$(echo "$iface_entry" | jq -r '.key')
   protocol=$(echo "$iface" | jq -r '.protocol // empty')
 
-  [ "$protocol" != "vector" ] && continue
-
   echo "$iface" | jq -c '.clients | to_entries[]' | while read -r client_entry; do
     name=$(echo "$client_entry" | jq -r '.key')
     client=$(echo "$client_entry" | jq -c '.value')
