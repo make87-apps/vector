@@ -4,10 +4,10 @@ set -e
 mkdir -p /etc/vector
 : > /etc/vector/vector.toml
 
-# Extract app name for Loki label
+# Extract app name for labeling
 app_name=$(echo "$MAKE87_CONFIG" | jq -r '.application_info.deployed_application_name // empty')
 
-# Track known sources
+# Track source names
 source_names=""
 has_sources=$(echo "$MAKE87_CONFIG" | jq -e '.config.sources | length > 0' 2>/dev/null || echo false)
 
@@ -24,7 +24,6 @@ if [ "$has_sources" = "true" ]; then
     echo "$source" | jq 'del(.name, .type)' | jq -r 'to_entries[] | "\(.key) = \(.value | @json)"' >> /etc/vector/vector.toml
   done
 else
-  # Add both fallback sources
   echo "" >> /etc/vector/vector.toml
   echo "[sources.stdin]" >> /etc/vector/vector.toml
   echo "type = \"stdin\"" >> /etc/vector/vector.toml
@@ -34,7 +33,7 @@ else
   source_names="stdin\nhost_metrics\n"
 fi
 
-# Helper to choose default input based on sink type
+# Helper: determine default input based on sink type
 default_input_for_sink() {
   case "$1" in
     loki|console|file|elasticsearch|kafka)
@@ -57,6 +56,7 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
   echo "$iface" | jq -c '.clients | to_entries[]' | while read -r client_entry; do
     name=$(echo "$client_entry" | jq -r '.key')
     client=$(echo "$client_entry" | jq -c '.value')
+    config=$(echo "$client" | jq -c '.config // {}')
 
     use_public=$(echo "$client" | jq -r '.use_public_ip // false')
     if [ "$use_public" = "true" ]; then
@@ -68,14 +68,15 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
     fi
 
     type=$(echo "$client" | jq -r '.sink_type')
+    endpoint="${host}:${port}"
 
     echo "" >> /etc/vector/vector.toml
     echo "[sinks.${iface_name}_${name}]" >> /etc/vector/vector.toml
     echo "type = \"${type}\"" >> /etc/vector/vector.toml
-    echo "endpoint = \"${host}:${port}\"" >> /etc/vector/vector.toml
+    echo "endpoint = \"${endpoint}\"" >> /etc/vector/vector.toml
 
-    # Validate or assign inputs
-    inputs=$(echo "$client" | jq -c '.inputs // empty')
+    # Handle inputs validation
+    inputs=$(echo "$config" | jq -c '.inputs // empty')
     valid_inputs=""
     if [ "$inputs" != "null" ] && [ "$inputs" != "" ]; then
       for input in $(echo "$inputs" | jq -r '.[]'); do
@@ -89,24 +90,24 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
     valid_inputs="${valid_inputs%,}"
     echo "inputs = [$valid_inputs]" >> /etc/vector/vector.toml
 
-    # Loki-specific labels
-    if [ "$type" = "loki" ]; then
+    # Write config fields (flatten nested tables like encoding, labels)
+    echo "$config" | jq 'del(.inputs)' | jq -r 'to_entries[]' | while read -r entry; do
+      key=$(echo "$entry" | jq -r '.key')
+      value=$(echo "$entry" | jq -c '.value')
+
+      if echo "$value" | grep -q '^{'; then
+        echo "[sinks.${iface_name}_${name}.${key}]" >> /etc/vector/vector.toml
+        echo "$value" | jq -r 'to_entries[] | .key + " = \"" + .value + "\"" ' >> /etc/vector/vector.toml
+      else
+        echo "$key = $value" >> /etc/vector/vector.toml
+      fi
+    done
+
+    # Ensure app label for Loki
+    if [ "$type" = "loki" ] && ! echo "$config" | jq -e '.labels' >/dev/null 2>&1; then
       echo "[sinks.${iface_name}_${name}.labels]" >> /etc/vector/vector.toml
       echo "app = \"${app_name}\"" >> /etc/vector/vector.toml
     fi
-
-    # Other optional config keys
-    for key in encoding mode method compression namespace; do
-      value=$(echo "$client" | jq -c --arg k "$key" 'if has($k) then .[$k] else null end')
-      if [ "$value" != "null" ]; then
-        if echo "$value" | grep -q '^{'; then
-          echo "[sinks.${iface_name}_${name}.${key}]" >> /etc/vector/vector.toml
-          echo "$value" | jq -r 'to_entries[] | .key + " = \"" + .value + "\"" ' >> /etc/vector/vector.toml
-        else
-          echo "$key = $value" >> /etc/vector/vector.toml
-        fi
-      fi
-    done
   done
 done
 
