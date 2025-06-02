@@ -56,8 +56,8 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
   echo "$iface" | jq -c '.clients | to_entries[]' | while read -r client_entry; do
     name=$(echo "$client_entry" | jq -r '.key')
     client=$(echo "$client_entry" | jq -c '.value')
-    config=$(echo "$client" | jq -c '.config // {}')
 
+    # Extract fixed fields
     use_public=$(echo "$client" | jq -r '.use_public_ip // false')
     if [ "$use_public" = "true" ]; then
       host=$(echo "$client" | jq -r '.public_ip')
@@ -67,12 +67,14 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
       port=$(echo "$client" | jq -r '.vpn_port')
     fi
 
-    type=$(echo "$client" | jq -r '.config.sink_type // .sink_type // empty')
+    # Derive config by excluding fixed fields
+    config=$(echo "$client" | jq 'del(.vpn_ip, .vpn_port, .public_ip, .public_port, .same_node, .protocol, .spec, .key, .name, .interface_name, .use_public_ip)')
+
+    type=$(echo "$config" | jq -r '.sink_type // empty')
     if [ -z "$type" ] || [ "$type" = "null" ]; then
       echo "Missing or invalid sink_type for client $iface_name/$name"
       exit 1
     fi
-
 
     endpoint="${host}:${port}"
 
@@ -96,13 +98,13 @@ echo "$MAKE87_CONFIG" | jq -c '.interfaces | to_entries[]' | while read -r iface
     valid_inputs="${valid_inputs%,}"
     echo "inputs = [$valid_inputs]" >> /etc/vector/vector.toml
 
-    # Optional labels for sinks like Loki
+    # Optional labels
     if [ "$type" = "loki" ]; then
       echo "[sinks.${iface_name}_${name}.labels]" >> /etc/vector/vector.toml
       echo "app = \"${app_name}\"" >> /etc/vector/vector.toml
     fi
 
-    # Write remaining config fields (excluding inputs and sink_type)
+    # Remaining config fields
     echo "$config" | jq 'del(.inputs, .sink_type)' | jq -r 'to_entries[]' | while read -r entry; do
       key=$(echo "$entry" | jq -r '.key')
       value=$(echo "$entry" | jq -c '.value')
