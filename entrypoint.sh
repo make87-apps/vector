@@ -104,12 +104,14 @@ echo "$MAKE87_CONFIG" \
           exit 1
         fi
 
-        endpoint="${host}:${port}"
-
         echo "" >> ${target_file}
         echo "[sinks.${iface_name}_${name}]" >> ${target_file}
         echo "type = \"${type}\"" >> ${target_file}
-        echo "endpoint = \"http://${endpoint}\"" >> ${target_file}
+        if [ "$type" = "socket" ]; then
+          echo "address = \"${host}:${port}\"" >> ${target_file}
+        else
+          echo "endpoint = \"http://${host}:${port}\"" >> ${target_file}
+        fi
 
         inputs=$(echo "$config" | jq -c '.inputs // empty')
         valid_inputs=""
