@@ -2,8 +2,10 @@
 set -e
 
 target_file="/etc/vector/vector.toml"
+target_file="/tmp/vector/vector.toml"
 
-mkdir -p /etc/vector
+#mkdir -p /etc/vector
+mkdir -p /tmp/vector
 : > ${target_file}
 
 # Extract the deployed application name (used for Loki labels)
@@ -14,37 +16,36 @@ source_names=""
 has_sources=$(echo "$MAKE87_CONFIG" | jq -e '.config.sources | length > 0' 2>/dev/null || echo false)
 
 if [ "$has_sources" = "true" ]; then
-  # If the user provided “config.sources”, write each under [sources.NAME]
   echo "$MAKE87_CONFIG" \
     | jq -c '.config.sources[]' \
     | while read -r source; do
       name=$(echo "$source" | jq -r '.name')
       type=$(echo "$source" | jq -r '.type')
 
-      echo ""                                      >> ${target_file}
-      echo "[sources.${name}]"                     >> ${target_file}
-      echo "type = \"${type}\""                   >> ${target_file}
+      echo "" >> ${target_file}
+      echo "[sources.${name}]" >> ${target_file}
+      echo "type = \"${type}\"" >> ${target_file}
 
       source_names="${source_names}${name}\n"
+
       echo "$source" \
         | jq 'del(.name, .type)' \
         | jq -r 'to_entries[] | "\(.key) = \(.value | @json)"' \
         >> ${target_file}
     done
 else
-  # No “config.sources” given → inject two defaults
-  echo ""                     >> ${target_file}
-  echo "[sources.docker_logs]"      >> ${target_file}
-  echo "type = \"docker_logs\""     >> ${target_file}
+  echo "" >> ${target_file}
+  echo "[sources.docker_logs]" >> ${target_file}
+  echo "type = \"docker_logs\"" >> ${target_file}
 
-  echo ""                     >> ${target_file}
+  echo "" >> ${target_file}
   echo "[sources.host_metrics]" >> ${target_file}
   echo "type = \"host_metrics\"" >> ${target_file}
 
   source_names="docker_logs\nhost_metrics\n"
 fi
 
-# If a sink has no valid inputs, choose a fallback based on sink type
+# Default input fallback by sink type
 default_input_for_sink() {
   case "$1" in
     loki|console|file|elasticsearch|kafka)
@@ -59,21 +60,19 @@ default_input_for_sink() {
   esac
 }
 
-# Iterate over every interface
+# Iterate over interfaces and clients
 echo "$MAKE87_CONFIG" \
   | jq -c '.interfaces | to_entries[]' \
   | while read -r iface_entry; do
     iface=$(echo "$iface_entry" | jq -c '.value')
     iface_name=$(echo "$iface_entry" | jq -r '.key')
 
-    # Within each interface, iterate over clients
     echo "$iface" \
       | jq -c '.clients | to_entries[]' \
       | while read -r client_entry; do
         name=$(echo "$client_entry" | jq -r '.key')
         client=$(echo "$client_entry" | jq -c '.value')
 
-        # Extract fixed fields (vpn vs public)
         use_public=$(echo "$client" | jq -r '.use_public_ip // false')
         if [ "$use_public" = "true" ]; then
           host=$(echo "$client" | jq -r '.public_ip')
@@ -83,7 +82,6 @@ echo "$MAKE87_CONFIG" \
           port=$(echo "$client" | jq -r '.vpn_port')
         fi
 
-        # Build ‘config’ by removing fixed fields
         config=$(echo "$client" \
           | jq 'del(
               .vpn_ip,
@@ -100,7 +98,6 @@ echo "$MAKE87_CONFIG" \
             )'
         )
 
-        # The sink type must be in config.sink_type
         type=$(echo "$config" | jq -r '.sink_type // empty')
         if [ -z "$type" ] || [ "$type" = "null" ]; then
           echo "Missing or invalid sink_type for client $iface_name/$name"
@@ -109,12 +106,11 @@ echo "$MAKE87_CONFIG" \
 
         endpoint="${host}:${port}"
 
-        echo ""                                            >> ${target_file}
-        echo "[sinks.${iface_name}_${name}]"               >> ${target_file}
-        echo "type = \"${type}\""                          >> ${target_file}
-        echo "endpoint = \"http://${endpoint}\""           >> ${target_file}
+        echo "" >> ${target_file}
+        echo "[sinks.${iface_name}_${name}]" >> ${target_file}
+        echo "type = \"${type}\"" >> ${target_file}
+        echo "endpoint = \"http://${endpoint}\"" >> ${target_file}
 
-        # Validate “inputs” against known sources
         inputs=$(echo "$config" | jq -c '.inputs // empty')
         valid_inputs=""
         if [ "$inputs" != "null" ] && [ "$inputs" != "" ]; then
@@ -128,33 +124,36 @@ echo "$MAKE87_CONFIG" \
         fi
         valid_inputs="${valid_inputs%,}"
         echo "inputs = [$valid_inputs]" >> ${target_file}
-        # If this is a Loki sink, inject its labels block
+
         if [ "$type" = "loki" ]; then
           echo "labels = { app = \"${app_name}\" }" >> ${target_file}
         fi
 
-        # Write every other key in “config” as a KV or a nested table
-        echo "$config" \
-          | jq 'del(.inputs, .sink_type)' \
-          | jq -c 'to_entries[]' \
+        flat_config=$(echo "$config" | jq 'del(.inputs, .sink_type)')
+
+        # Write flat (non-object) keys first
+        echo "$flat_config" \
+          | jq -c 'to_entries[] | select(.value | type != "object")' \
           | while read -r entry; do
             key=$(echo "$entry" | jq -r '.key')
             value=$(echo "$entry" | jq -c '.value')
-
-            if echo "$value" | jq -e 'type == "object"' >/dev/null; then
-              # Nested table
-              echo "[sinks.${iface_name}_${name}.${key}]" >> ${target_file}
-              echo "$value" \
-                | jq -r 'to_entries[] | "\(.key) = \(.value | (if type=="string" then @json else tostring end))"' \
-                >> ${target_file}
+            if echo "$value" | jq -e 'type == "string"' >/dev/null; then
+              echo "${key} = ${value}" >> ${target_file}
             else
-              # Simple key = value
-              if echo "$value" | jq -e 'type == "string"' >/dev/null; then
-                echo "${key} = ${value}" >> ${target_file}
-              else
-                echo "${key} = $(echo "$value" | jq -r tostring)" >> ${target_file}
-              fi
+              echo "${key} = $(echo "$value" | jq -r tostring)" >> ${target_file}
             fi
+          done
+
+        # Then write nested objects as tables
+        echo "$flat_config" \
+          | jq -c 'to_entries[] | select(.value | type == "object")' \
+          | while read -r entry; do
+            key=$(echo "$entry" | jq -r '.key')
+            value=$(echo "$entry" | jq -c '.value')
+            echo "[sinks.${iface_name}_${name}.${key}]" >> ${target_file}
+            echo "$value" \
+              | jq -r 'to_entries[] | "\(.key) = \(.value | (if type=="string" then @json else tostring end))"' \
+              >> ${target_file}
           done
       done
   done
