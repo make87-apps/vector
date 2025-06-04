@@ -127,7 +127,7 @@ interfaces:
       target_port: 9000
     clients:
       - name: socket
-        spec: { string: socket }
+        spec: { string: vector-tcp }
         config:
           type: object
           properties:
