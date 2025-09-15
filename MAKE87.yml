@@ -168,6 +168,8 @@ config:
           name:
             type: string
             description: "The unique name of the source."
+            default: "docker_logs"
           type:
             type: string
             description: "The type of Vector soure"
+            default: "docker_logs"
